@@ -31,3 +31,7 @@ ffmpeg_build/lib/libavfilter.so filter=lfs diff=lfs merge=lfs -text
 ffmpeg_build/lib/libavformat.so filter=lfs diff=lfs merge=lfs -text
 ffmpeg_build/lib/libavutil.so.56 filter=lfs diff=lfs merge=lfs -text
 ffmpeg_build/lib/libpostproc.so filter=lfs diff=lfs merge=lfs -text
+third/glad/libs/libglad.so filter=lfs diff=lfs merge=lfs -text
+third/opengl/libs/libglfw.so filter=lfs diff=lfs merge=lfs -text
+third/opengl/libs/libglfw.so.3 filter=lfs diff=lfs merge=lfs -text
+third/opengl/libs/libglfw.so.3.4 filter=lfs diff=lfs merge=lfs -text
