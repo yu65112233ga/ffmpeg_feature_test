@@ -1,7 +1,7 @@
-prefix=/home/liam/code/ffmpeg/ffmepg_build
+prefix=./
 exec_prefix=${prefix}
-libdir=/home/liam/code/ffmpeg/ffmepg_build/lib
-includedir=/home/liam/code/ffmpeg/ffmepg_build/include
+libdir=./ffmpeg_lib
+includedir=./ffmpeg_include
 
 Name: libavcodec
 Description: FFmpeg codec library
@@ -10,5 +10,5 @@ Requires:
 Requires.private: libswresample >= 3.8.100, libavutil >= 56.64.100
 Conflicts:
 Libs: -L${libdir}  -lavcodec 
-Libs.private: -pthread -lm -llzma -lz -lx264 -lx265 -lva
+Libs.private: -pthread -lm -llzma -lz -lmp3lame -lm -lx264 -lva
 Cflags: -I${includedir}
