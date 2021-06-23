@@ -19,7 +19,7 @@ list(APPEND FFMPEG_DEP m z lzma bz2 x264 mp3lame avcodec swresample avdevice avf
 include_directories(${PROJECT_SOURCE_DIR}/src)
 
 # opengl/glad dependency
-list(APPEND OPENGL_DEP dl GLEW glfw3 glad GL X11 pthread Xrandr Xi)
+list(APPEND OPENGL_DEP dl glfw glad GL X11 pthread Xrandr Xi)
 
 add_executable(demo ${PROJECT_SOURCE_DIR}/src/main.cpp)
 target_link_libraries(demo PUBLIC ${FFMPEG_DEP} ${OPENGL_DEP})

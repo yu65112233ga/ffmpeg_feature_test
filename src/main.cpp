@@ -85,87 +85,24 @@ int finish_audio_encoding(AVCodecContext *aud_codec_context, AVFormatContext *ou
     av_write_trailer(outctx);
 }
 
-int main() {
-
-    std::string filepath = "./sample_mv.aac";
-    AVFormatContext *formatCtx = avformat_alloc_context();
-    avformat_open_input(&formatCtx, filepath.c_str(), nullptr, nullptr);
-    avformat_find_stream_info(formatCtx, nullptr);
-    AVCodecID videoCodecId = AV_CODEC_ID_NONE;
-    AVCodecID audioCodecId = AV_CODEC_ID_NONE;
-
-
-    av_log_set_level(AV_LOG_TRACE);
-
-    int videoStreamIndex = -1;
-    int audioStreamIndex = -1;
-
-    for (int i = 0; i < formatCtx->nb_streams; i++) {
-        std::string mediaType = "unkown";
-        switch (formatCtx->streams[i]->codecpar->codec_type)
-        {
-        case AVMEDIA_TYPE_VIDEO:
-            mediaType = "video";
-            videoStreamIndex = i;
-            break;
-        case AVMEDIA_TYPE_AUDIO:
-            mediaType = "audio";
-            audioStreamIndex = i;
-            break;
-        default:
-            break;
-        }
-        printf("media type : %s  decoder   %lld   index  %d  \n", mediaType.c_str(), formatCtx->streams[i]->codecpar->codec_id, i);
-    }
-
-//    auto videoCodec = avcodec_find_decoder(formatCtx->streams[videoStreamIndex]->codecpar->codec_id);
-    auto audioCodec = avcodec_find_decoder(formatCtx->streams[audioStreamIndex]->codecpar->codec_id);
-    printf("%lld  \n", formatCtx->duration);
-    auto test = av_rescale_q(1995776, formatCtx->streams[audioStreamIndex]->time_base, AV_TIME_BASE_Q);
-    int b;
-//    auto videoCodecCtx = avcodec_alloc_context3(videoCodec);
-//    videoCodecCtx->skip_frame = AVDISCARD_NONREF;
-//
-//    videoCodecCtx->thread_count = 16;
-//    videoCodecCtx->thread_type = 1;
-//    avcodec_parameters_to_context(videoCodecCtx, formatCtx->streams[videoStreamIndex]->codecpar);
-//    videoCodecCtx->skip_frame = AVDISCARD_NONREF;
-//    videoCodecCtx->thread_count = 16;
-//    videoCodecCtx->thread_type = 1;
-//
-//    if (avcodec_open2(videoCodecCtx, videoCodec, NULL) < 0){
-//        printf("Failed to open video decoder");
-//        return 0;
-//    }
-//    videoCodecCtx->skip_frame = AVDISCARD_NONREF;
-//    videoCodecCtx->thread_count = 16;
-//    videoCodecCtx->thread_type = 1;
-
-    auto audioCodecCtx = avcodec_alloc_context3(audioCodec);
-    avcodec_parameters_to_context(audioCodecCtx, formatCtx->streams[audioStreamIndex]->codecpar);
-
-    if (avcodec_open2(audioCodecCtx, audioCodec, NULL) < 0){
-        printf("Failed to open audio decoder");
-        return 0;
-    }
-
+void encodeCodes() {
     // // initial encoder
     // const char *out_file = "test.aac";
     // auto output_format_context = avformat_alloc_context();
     // avformat_alloc_output_context2(&output_format_context, NULL, nullptr, out_file);
 
     // if (avio_open((&(output_format_context->pb)), out_file, AVIO_FLAG_WRITE) < 0){
-	// 	printf("Failed to open output file!\n");
-	// 	return -1;
-	// }
+    // 	printf("Failed to open output file!\n");
+    // 	return -1;
+    // }
 
     // output_format_context->oformat = av_guess_format(nullptr, out_file, nullptr);
 
     // auto audio_st = avformat_new_stream(output_format_context, 0);
     // if (audio_st==NULL){
     //     printf("Failed to avformat_new_stream!\n");
-	// 	return -1;
-	// }
+    // 	return -1;
+    // }
 
     // auto audioEncoder = avcodec_find_encoder(audioCodec->id);
     // auto audioEncoderCtx = avcodec_alloc_context3(audioEncoder);
@@ -176,7 +113,7 @@ int main() {
     // // audioEncoderCtx->channel_layout = av_get_default_channel_layout(2);
     // // audioEncoderCtx->sample_rate    = audioCodecCtx->sample_rate;
     // // audioEncoderCtx->sample_fmt     = audioEncoder->sample_fmts[0];
-    // // audioEncoderCtx->bit_rate       = audioCodecCtx->bit_rate; 
+    // // audioEncoderCtx->bit_rate       = audioCodecCtx->bit_rate;
 
     // audio_st->time_base.den = audioCodecCtx->sample_rate;
     // audio_st->time_base.num = 1;
@@ -235,7 +172,7 @@ int main() {
 //    printf("test     4  \n");
 
 //     avcodec_parameters_from_context(video_st->codecpar, videoEncoderCtx);
-    
+
     int got_frame, gotOutput, ret = 0;
 //    printf("test     000 \n");
 
@@ -268,11 +205,8 @@ int main() {
     // }
     //end
 
-    AVPacket *pkt = av_packet_alloc();
-    AVPacket *writePkt = av_packet_alloc();
-    AVFrame *frame = av_frame_alloc();
 
-    AVFrame *pFrameRGB = av_frame_alloc();
+
     // AVFrame *writeFrame = av_frame_alloc();
     // writeFrame->nb_samples = audioEncoderCtx->frame_size;
     // writeFrame->format = audioEncoderCtx->sample_fmt;
@@ -287,33 +221,77 @@ int main() {
 //    auto out_buffer = (uint8_t *) av_malloc(numBytes * sizeof(uint8_t));
 //    avpicture_fill((AVPicture *) pFrameRGB, out_buffer, AV_PIX_FMT_RGB24,
 //            videoCodecCtx->width, videoCodecCtx->height);
-    printf("test     9  \n");
+}
 
-    size_t len = 0;
-    // ret = av_seek_frame(formatCtx, videoStreamIndex , 1000, AVSEEK_FLAG_ANY);
-    // if (ret < 0) {
-    //     printf("seek error %d \n", ret);
-    //     return -1;
-    // }
+int main() {
 
-//    ret =avformat_seek_file(formatCtx, videoStreamIndex, INT64_MIN, 600, INT64_MAX, AVSEEK_FLAG_BACKWARD);
-    if (ret < 0) {
-        printf("seek error %d \n", ret);
-        return -1;
+    std::string filepath = "./sample_mv.mp4";
+    AVFormatContext *formatCtx = avformat_alloc_context();
+    avformat_open_input(&formatCtx, filepath.c_str(), nullptr, nullptr);
+    AVCodecID videoCodecId = AV_CODEC_ID_NONE;
+    AVCodecID audioCodecId = AV_CODEC_ID_NONE;
+
+    av_log_set_level(AV_LOG_TRACE);
+
+    int videoStreamIndex = -1;
+    int audioStreamIndex = -1;
+
+    for (int i = 0; i < formatCtx->nb_streams; i++) {
+        std::string mediaType = "unkown";
+        switch (formatCtx->streams[i]->codecpar->codec_type)
+        {
+        case AVMEDIA_TYPE_VIDEO:
+            mediaType = "video";
+            videoStreamIndex = i;
+            break;
+        case AVMEDIA_TYPE_AUDIO:
+            mediaType = "audio";
+            audioStreamIndex = i;
+            break;
+        default:
+            break;
+        }
+        printf("media type : %s  decoder   %lld   index  %d  \n", mediaType.c_str(), formatCtx->streams[i]->codecpar->codec_id, i);
     }
 
-    int i = 0;
+    auto videoCodec = avcodec_find_decoder(formatCtx->streams[videoStreamIndex]->codecpar->codec_id);
+    auto audioCodec = avcodec_find_decoder(formatCtx->streams[audioStreamIndex]->codecpar->codec_id);
+
+    // video codec context
+    auto videoCodecCtx = avcodec_alloc_context3(videoCodec);
+    avcodec_parameters_to_context(videoCodecCtx, formatCtx->streams[videoStreamIndex]->codecpar);
+
+    if (avcodec_open2(videoCodecCtx, videoCodec, NULL) < 0){
+        printf("Failed to open video decoder");
+        return 0;
+    }
+
+    // audio codec context
+    auto audioCodecCtx = avcodec_alloc_context3(audioCodec);
+    avcodec_parameters_to_context(audioCodecCtx, formatCtx->streams[audioStreamIndex]->codecpar);
+
+    if (avcodec_open2(audioCodecCtx, audioCodec, NULL) < 0){
+        printf("Failed to open audio decoder");
+        return 0;
+    }
+
+    AVPacket *pkt = av_packet_alloc();
+    AVPacket *writePkt = av_packet_alloc();
+    AVFrame *frame = av_frame_alloc();
+
+    AVFrame *pFrameRGB = av_frame_alloc();
+    int ret = 0;
+
     int nb_frams = 0;
     while(av_read_frame(formatCtx, pkt) >= 0) {
         if (pkt->stream_index == videoStreamIndex) {
-//            if (avcodec_send_packet(videoCodecCtx, pkt) >= 0) {
-//                printf("decode video no %d packet \n", pkt->pts);
-//
-//                ret = avcodec_receive_frame(videoCodecCtx, frame);
-//                if (ret >= 0) {
-//                    i++;
-//                    printf("decode video %d frame \n", frame->pkt_pos);
-//
+            if (avcodec_send_packet(videoCodecCtx, pkt) >= 0) {
+                printf("decode video no. %d packet \n", pkt->pts);
+
+                ret = avcodec_receive_frame(videoCodecCtx, frame);
+                if (ret >= 0) {
+                    printf("decode video %d frame \n", frame->pkt_pos);
+
 //                    sws_scale(img_convert_ctx,
 //                        (uint8_t const * const *) frame->data,
 //                        frame->linesize, 0, videoCodecCtx->height, pFrameRGB->data,
@@ -341,10 +319,10 @@ int main() {
 //                         }
 //                         av_packet_unref(writePkt);
 //                     }
-//                } else {
-//                    printf("read frame error %d  \n", ret);
-//                }
-//            }
+                } else {
+                    printf("read frame error %d  \n", ret);
+                }
+            }
         }
          if (pkt->stream_index == audioStreamIndex) {
              nb_frams++;
@@ -379,9 +357,7 @@ int main() {
         av_packet_unref(pkt);
     }
 
-    // finish_audio_encoding(videoEncoderCtx, output_format_context, video_st);
-    // printf("yulinhao   %d     %d \n", audioEncoderCtx->initial_padding, audio_st->codecpar->seek_preroll);
-    printf("ttt  %d  \n", nb_frams);
+    printf("number of frames:  %d  \n", nb_frams);
     av_frame_free(&frame);
     avcodec_free_context(&audioCodecCtx);
 
