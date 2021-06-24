@@ -12,6 +12,8 @@ link_directories(${PROJECT_SOURCE_DIR}/third/opengl/libs)
 include_directories(${PROJECT_SOURCE_DIR}/third/glad/include)
 link_directories(${PROJECT_SOURCE_DIR}/third/glad/libs)
 
+include_directories(${PROJECT_SOURCE_DIR}/third/glm)
+
 # ffmpeg dependency
 list(APPEND FFMPEG_DEP m z lzma bz2 x264 mp3lame avcodec swresample avdevice avfilter avformat avutil swscale)
 

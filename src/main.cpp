@@ -6,12 +6,27 @@ extern "C" {
     #include <libavutil/opt.h>
     #include "libavutil/pixfmt.h"
     #include "libavutil/log.h"
+    #include <libavutil/imgutils.h>
 }
 
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <shader.h>
+#include <iostream>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #include <string>
 #include <stdio.h>
+#include <thread>
+#include <deque>
+#include <mutex>
 
-#define CODEC_CAP_DELAY 0x0020
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void processInput(GLFWwindow *window);
+
+// settings
+const unsigned int SCR_WIDTH = 720;
+const unsigned int SCR_HEIGHT = 1080;
 
 struct AVCodecContext *pAVCodecCtx_decoder = NULL;
 struct AVCodec *pAVCodec_decoder;
@@ -20,71 +35,186 @@ struct AVFrame *pAVFrame_decoder = NULL;
 struct SwsContext* pImageConvertCtx_decoder = NULL;
 struct AVFrame *pFrameYUV_decoder = NULL;
 
-#define        ADTS_HEADER_LEN      7;
+std::deque<AVFrame* > framesQueue;
+int global_width = 0;
+int global_height = 0;
+std::mutex mtx;
 
-void SaveFrame(AVFrame *pFrame, int width, int height,int index)
+int renderVideo()
 {
- 
-  FILE *pFile;
-  char szFilename[32];
-  int  y;
- 
-  // Open file
-  sprintf(szFilename, "frame%d.ppm", index);//文件名
-  pFile=fopen(szFilename, "wb");
- 
-  if(pFile==nullptr)
-    return;
- 
-  // Write header
-  fprintf(pFile, "P6 %d %d 255", width, height);
- 
-  // Write pixel data
-  for(y=0; y<height; y++)
-  {
-    fwrite(pFrame->data[0]+y*pFrame->linesize[0], 1, width*3, pFile);
-  }
- 
-  // Close file
-  fclose(pFile);
- 
-}
+    // glfw: initialize and configure
+    // ------------------------------
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-int finish_audio_encoding(AVCodecContext *aud_codec_context, AVFormatContext *outctx, AVStream *audio_st)
-{
-    AVPacket pkt;
-    av_init_packet(&pkt);
-    pkt.data = NULL;
-    pkt.size = 0;
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#endif
 
-    fflush(stdout);
-
-    int ret = avcodec_send_frame(aud_codec_context, NULL);
-    if (ret < 0)
-        return -1;
-
-    while (true)
+    // glfw window creation
+    // --------------------
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", NULL, NULL);
+    if (window == NULL)
     {
-        ret = avcodec_receive_packet(aud_codec_context, &pkt);
-        if (!ret)
-        {
-            if (pkt.pts != AV_NOPTS_VALUE)
-                pkt.pts = av_rescale_q(pkt.pts, aud_codec_context->time_base, audio_st->time_base);
-            if (pkt.dts != AV_NOPTS_VALUE)
-                pkt.dts = av_rescale_q(pkt.dts, aud_codec_context->time_base, audio_st->time_base);
+        std::cout << "Failed to create GLFW window" << std::endl;
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-            av_write_frame(outctx, &pkt);
-            av_packet_unref(&pkt);
-        }
-        if (ret == -AVERROR(AVERROR_EOF))
-            break;
-        else if (ret < 0)
-            return -1;
+    // glad: load all OpenGL function pointers
+    // ---------------------------------------
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
+        std::cout << "Failed to initialize GLAD" << std::endl;
+        return -1;
     }
 
-    av_write_trailer(outctx);
+    // build and compile our shader zprogram
+    // ------------------------------------
+    Shader ourShader("4.2.texture.vs", "4.2.texture.fs");
+
+    // set up vertex data (and buffer(s)) and configure vertex attributes
+    // ------------------------------------------------------------------
+    float vertices[] = {
+            // positions          // colors           // texture coords
+            0.5f,  0.5f, 0.0f,   1.0f, 0.0f, 0.0f,   1.0f, 0.0f, // top right
+            0.5f, -0.5f, 0.0f,   0.0f, 1.0f, 0.0f,   1.0f, 1.0f, // bottom right
+            -0.5f, -0.5f, 0.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, // bottom left
+            -0.5f,  0.5f, 0.0f,   1.0f, 1.0f, 0.0f,   0.0f, 0.0f  // top left
+    };
+    unsigned int indices[] = {
+            0, 1, 3, // first triangle
+            1, 2, 3  // second triangle
+    };
+    unsigned int VBO, VAO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+    // position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    // color attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    // texture coord attribute
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+
+    // tell opengl for each sampler to which texture unit it belongs to (only has to be done once)
+    // -------------------------------------------------------------------------------------------
+    unsigned int textureid;
+    int frameNum = 0;
+    bool isNewFrame = false;
+    AVFrame *curFrame = nullptr;
+    bool isLoop = true;
+
+    ourShader.use(); // don't forget to activate/use the shader before setting uniforms!
+    // either set it manually like so:
+    glUniform1i(glGetUniformLocation(ourShader.ID, "texture1"), 0);
+    // or set it via the texture class
+    ourShader.setInt("texture2", 1);
+    // render loop
+    // -----------
+    int a = 0;
+    while (!glfwWindowShouldClose(window))
+    {
+        // input
+        // -----
+        processInput(window);
+
+        // render
+        // ------
+        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // load and create a texture
+        // -------------------------
+        mtx.lock();
+        if (framesQueue.size() > frameNum) {
+            if (curFrame != nullptr) {
+                av_free(curFrame);
+                curFrame = nullptr;
+            }
+            curFrame = framesQueue[frameNum];
+            frameNum++;
+            isNewFrame = true;
+        } else {
+            isNewFrame = false;
+        }
+        mtx.unlock();
+
+        if (isNewFrame) {
+            // ---------
+            glGenTextures(1, &textureid);
+            glBindTexture(GL_TEXTURE_2D, textureid);
+            // set the texture wrapping parameters
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            // set texture filtering parameters
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            // load image, create texture and generate mipmaps
+
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, global_width, global_height, 0, GL_RGB, GL_UNSIGNED_BYTE, curFrame->data[0]);
+            glGenerateMipmap(GL_TEXTURE_2D);
+        }
+
+        // bind textures on corresponding texture units
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, textureid);
+
+        // render container
+        ourShader.use();
+        glBindVertexArray(VAO);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
+        // -------------------------------------------------------------------------------
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    // optional: de-allocate all resources once they've outlived their purpose:
+    // ------------------------------------------------------------------------
+    glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
+    glDeleteBuffers(1, &EBO);
+
+    // glfw: terminate, clearing all previously allocated GLFW resources.
+    // ------------------------------------------------------------------
+    glfwTerminate();
+    return 0;
 }
 
+// process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
+// ---------------------------------------------------------------------------------------------------------
+void processInput(GLFWwindow *window)
+{
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+}
+
+// glfw: whenever the window size changed (by OS or user resize) this callback function executes
+// ---------------------------------------------------------------------------------------------
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+    // make sure the viewport matches the new window dimensions; note that width and
+    // height will be significantly larger than specified on retina displays.
+    glViewport(0, 0, width, height);
+}
 void encodeCodes() {
     // // initial encoder
     // const char *out_file = "test.aac";
@@ -223,7 +353,7 @@ void encodeCodes() {
 //            videoCodecCtx->width, videoCodecCtx->height);
 }
 
-int main() {
+int decodeVideo() {
 
     std::string filepath = "./sample_mv.mp4";
     AVFormatContext *formatCtx = avformat_alloc_context();
@@ -277,20 +407,39 @@ int main() {
 
     AVPacket *pkt = av_packet_alloc();
     AVPacket *writePkt = av_packet_alloc();
-    AVFrame *frame = av_frame_alloc();
+    AVFrame *frame = nullptr;
 
     AVFrame *pFrameRGB = av_frame_alloc();
     int ret = 0;
-
+    SwsContext* swsContext = sws_getContext(videoCodecCtx->width, videoCodecCtx->height, AV_PIX_FMT_YUV420P,videoCodecCtx->width, videoCodecCtx->height,
+                                            AV_PIX_FMT_RGB24,NULL, NULL, NULL, NULL);
     int nb_frams = 0;
     while(av_read_frame(formatCtx, pkt) >= 0) {
         if (pkt->stream_index == videoStreamIndex) {
             if (avcodec_send_packet(videoCodecCtx, pkt) >= 0) {
                 printf("decode video no. %d packet \n", pkt->pts);
-
+                frame = av_frame_alloc();
                 ret = avcodec_receive_frame(videoCodecCtx, frame);
                 if (ret >= 0) {
                     printf("decode video %d frame \n", frame->pkt_pos);
+
+                    global_width = frame->width;
+                    global_height = frame->height;
+
+                    AVFrame* rgbFrame = av_frame_alloc();
+                    rgbFrame->format = AV_PIX_FMT_RGB24;
+                    rgbFrame->width  = frame->width;
+                    rgbFrame->height = frame->height;
+                    av_image_alloc(rgbFrame->data, rgbFrame->linesize, frame->width, frame->height,
+                                   AV_PIX_FMT_RGB24, 1);
+
+                    int a = 3;
+                    a++;
+                    sws_scale(swsContext, frame->data, frame->linesize, 0, frame->height, rgbFrame->data, rgbFrame->linesize);
+
+                    mtx.lock();
+                    framesQueue.emplace_back(rgbFrame);
+                    mtx.unlock();
 
 //                    sws_scale(img_convert_ctx,
 //                        (uint8_t const * const *) frame->data,
@@ -322,16 +471,18 @@ int main() {
                 } else {
                     printf("read frame error %d  \n", ret);
                 }
+
+                av_free(frame);
+
             }
         }
          if (pkt->stream_index == audioStreamIndex) {
              nb_frams++;
 
              if (avcodec_send_packet(audioCodecCtx, pkt) >= 0) {
-
+                 frame = av_frame_alloc();
                  if (avcodec_receive_frame(audioCodecCtx, frame) >= 0) {
                       printf("decode audio %d frame \n", frame->pkt_pos);
-
                      // if (frame->pkt_pos > 3653162) {
                      //     continue;
                      // }
@@ -351,15 +502,26 @@ int main() {
                      //     av_packet_unref(writePkt);
                      // }
                  }
+                 av_free(frame);
              }
          }
 
-        av_packet_unref(pkt);
+//        av_packet_unref(pkt);
     }
 
     printf("number of frames:  %d  \n", nb_frams);
-    av_frame_free(&frame);
     avcodec_free_context(&audioCodecCtx);
 
+    return 0;
+}
+
+
+int main() {
+    framesQueue = std::deque<AVFrame*>();
+    std::thread t2(decodeVideo);
+    t2.detach();
+
+    std::thread t1(renderVideo);
+    t1.join();
     return 0;
 }
