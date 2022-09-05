@@ -11,9 +11,12 @@ link_directories(${PROJECT_SOURCE_DIR}/third/opengl/libs)
 
 include_directories(${PROJECT_SOURCE_DIR}/third/glad/include)
 link_directories(${PROJECT_SOURCE_DIR}/third/glad/libs)
+link_directories(/usr/local/cuda/lib64)
 
+set(CMAKE_BUILD_RPATH ${PROJECT_SOURCE_DIR}/ffmpeg_build/lib)
 # ffmpeg dependency
-list(APPEND FFMPEG_DEP m z lzma bz2 x264 mp3lame avcodec swresample avdevice avfilter avformat avutil swscale)
+# list(APPEND FFMPEG_DEP m z lzma bz2 x264 mp3lame avcodec swresample avdevice avfilter avformat avutil swscale)
+list(APPEND FFMPEG_DEP m z lzma bz2 x264 ffmpeg va vdpau va-x11 va-drm nppc nppicc nppidei nppig)
 
 # 临时图片处理
 include_directories(${PROJECT_SOURCE_DIR}/src)
