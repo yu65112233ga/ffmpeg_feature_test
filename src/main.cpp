@@ -11,7 +11,7 @@ extern "C" {
 #include <string>
 #include <iostream>
 #include <stdio.h>
-
+#include <chrono>
 #define CODEC_CAP_DELAY 0x0020
 
 struct AVCodecContext *pAVCodecCtx_decoder = NULL;
@@ -21,6 +21,8 @@ struct AVFrame *pAVFrame_decoder = NULL;
 struct SwsContext* pImageConvertCtx_decoder = NULL;
 struct AVFrame *pFrameYUV_decoder = NULL;
 
+
+int64_t globalPts = 0;
 #define        ADTS_HEADER_LEN      7;
 
 void SaveFrame(AVFrame *pFrame, int width, int height,int index)
@@ -84,6 +86,7 @@ int finish_audio_encoding(AVCodecContext *aud_codec_context, AVFormatContext *ou
     // }
 
     // av_write_trailer(outctx);
+    return 0;
 }
 
 void encodeCodes() {
@@ -225,20 +228,13 @@ void encodeCodes() {
 }
 
 using namespace std;
-int main(int argc, char **argv) {
-    if (argc <= 2) {
-        printf("enter decode filepath & output filepath\n");
-        return -1;
-    }
-    std::string filepath(argv[1]);
-    std::string ofilepath(argv[2]);
-    bool isHW = false;
-    if (argc >= 4) {
-        std::string tmp(argv[3]);
-        if (tmp == "-hw") {
-            isHW = true;
-        }
-    }
+int main() {
+    std::string filepath("/home/liam/code/ffmpeg_demo/build/sample_mv.mp4");
+    std::string ofilepath("/home/liam/code/ffmpeg_demo/build/test_demo.mp4");
+
+    bool isHW = true;
+
+    auto start = std::chrono::high_resolution_clock::now();
 
     AVFormatContext *formatCtx = avformat_alloc_context();
     avformat_open_input(&formatCtx, filepath.c_str(), nullptr, nullptr);
@@ -274,7 +270,10 @@ int main(int argc, char **argv) {
     auto videoCodec = avcodec_find_decoder_by_name(decodeName.c_str());
     if (!videoCodec) {
         printf("Codec '%s' not found\n", decodeName.c_str());
-        return -1;
+        videoCodec = avcodec_find_decoder(AV_CODEC_ID_H264);
+        if (!videoCodec) {
+            return -1;
+        }
     }
     // auto audioCodec = avcodec_find_decoder(formatCtx->streams[audioStreamIndex]->codecpar->codec_id);
 
@@ -309,13 +308,12 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    avcodec_parameters_to_context(encoderCtx, formatCtx->streams[videoStreamIndex]->codecpar);
+//    avcodec_parameters_to_context(encoderCtx, formatCtx->streams[videoStreamIndex]->codecpar);
 
     encoderCtx->width = videoCodecCtx->width;
     encoderCtx->height = videoCodecCtx->height;
     encoderCtx->time_base = formatCtx->streams[videoStreamIndex]->time_base;
     encoderCtx->framerate  = formatCtx->streams[videoStreamIndex]->avg_frame_rate;
-
     encoderCtx->pix_fmt = AV_PIX_FMT_YUV420P;
     if (isHW) {
         encoderCtx->pix_fmt = AV_PIX_FMT_CUDA;
@@ -371,23 +369,27 @@ int main(int argc, char **argv) {
                 err = AVERROR(ENOMEM);
             }
 
-            av_buffer_unref(&hw_frames_ref);
+//            av_buffer_unref(&hw_frames_ref);
             return err;
         };
 
-        if ((err = set_hwframe_ctx(videoCodecCtx, hw_device_ctx)) < 0) {
+        if ((err = set_hwframe_ctx(encoderCtx, hw_device_ctx)) < 0) {
             printf("Failed to init CUDA frame context!");
             return err;
         }
-        encoderCtx->hw_frames_ctx = av_buffer_ref(videoCodecCtx->hw_frames_ctx);
+//        encoderCtx->hw_frames_ctx = av_buffer_ref(videoCodecCtx->hw_frames_ctx);
     }
 
     if (avcodec_open2(videoCodecCtx, videoCodec, NULL) < 0){
         printf("Failed to open video decoder");
         return 0;
     }
+    AVDictionary *opt = nullptr;
+    av_dict_set(&opt, "preset", "slow", 0);
+    av_dict_set(&opt, "rc", "vbr", 0);
+    av_dict_set(&opt, "cq", std::to_string(25).c_str(), 0);
 
-    if (avcodec_open2(encoderCtx, encoderCodec, NULL)) {
+    if (avcodec_open2(encoderCtx, encoderCodec, &opt)) {
         printf("Could not open codec\n");
         return -1;
     }
@@ -431,8 +433,8 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    AVDictionary *opt = nullptr;
-    if (avformat_write_header(oformatCtx, &opt) < 0) {
+    AVDictionary *opt2 = nullptr;
+    if (avformat_write_header(oformatCtx, &opt2) < 0) {
         printf("write header fail \n");
         return -1;
     }
@@ -447,7 +449,7 @@ int main(int argc, char **argv) {
     AVFrame *frame = av_frame_alloc();
 
     if (isHW) {
-        frame->hw_frames_ctx = av_buffer_ref(encoderCtx->hw_frames_ctx);
+//        frame->hw_frames_ctx = av_buffer_ref(encoderCtx->hw_frames_ctx);
     }
 
     AVFrame *pFrameRGB = av_frame_alloc();
@@ -462,11 +464,23 @@ int main(int argc, char **argv) {
                 ret = avcodec_receive_frame(videoCodecCtx, frame);
                 if (ret >= 0) {
                     nb_frams++;
-                    printf("decode video %d frame \n", nb_frams);
+//                    printf("decode video %d frame \n", nb_frams);
 
+                    AVFrame *frame2 = av_frame_alloc();
+                    av_frame_unref(frame2);
+                    int err;
+                    err = av_hwframe_get_buffer(encoderCtx->hw_frames_ctx, frame2, 0);
+                    if (err < 0) {
+                        return -1;
+                    }
+
+                    err = av_hwframe_transfer_data(frame2, frame, 0);
+                    if (err < 0) {
+                        return -1;
+                    }
 
                     // encode frame
-                    auto ret = avcodec_send_frame(encoderCtx, frame);
+                    auto ret = avcodec_send_frame(encoderCtx, frame2);
                     if (ret < 0) {
                         printf("encode failed\n");
                         continue;
@@ -482,13 +496,14 @@ int main(int argc, char **argv) {
                         }
 
                         outPkt->stream_index = ostream->index;
-                        outPkt->pts = av_rescale_q(outPkt->pts - 0, encoderCtx->time_base, ostream->time_base);
-                        outPkt->dts = av_rescale_q(outPkt->dts - 0, encoderCtx->time_base, ostream->time_base);
+                        outPkt->pts = globalPts;
+                        outPkt->dts = globalPts;
 
                         outPkt->duration = 0;   // av_rescale_q(1, videoEncoderCtx->time_base, ostream->time_base);
 
                         outPkt->duration = encoderCtx->time_base.den * encoderCtx->framerate.den / encoderCtx->framerate.num;
 
+                        globalPts += outPkt->duration;
                         ret = av_interleaved_write_frame(oformatCtx, outPkt);
                         if (ret < 0) {
                             printf("write frame fail\n");
@@ -497,7 +512,7 @@ int main(int argc, char **argv) {
                     }
 
 
-                
+
 //                    sws_scale(img_convert_ctx,
 //                        (uint8_t const * const *) frame->data,
 //                        frame->linesize, 0, videoCodecCtx->height, pFrameRGB->data,
@@ -573,9 +588,20 @@ int main(int argc, char **argv) {
 
     avio_close(oformatCtx->pb);
 
+    avio_flush(formatCtx->pb);
     printf("number of frames:  %d  \n", nb_frams);
     av_frame_free(&frame);
 //    avcodec_free_context(&audioCodecCtx);
+
+    avcodec_close(encoderCtx);
+    // 获取结束时间点
+    auto end = std::chrono::high_resolution_clock::now();
+
+    // 计算持续时间
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    // 输出执行时间
+    std::cout << "Execution time: " << duration.count() << " milliseconds" << std::endl;
 
     return 0;
 }
